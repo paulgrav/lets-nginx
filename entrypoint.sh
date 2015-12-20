@@ -1,4 +1,5 @@
-#!/bin/sh
+#!/bin/bash
+. venv/bin/activate
 
 set -euo pipefail
 
@@ -26,7 +27,7 @@ SERVER=""
 
 # Template an nginx.conf
 cat <<EOF >/etc/nginx/nginx.conf
-user nobody;
+user nginx;
 worker_processes 2;
 
 events {
@@ -45,7 +46,8 @@ http {
   error_log /var/log/nginx/error.log;
 
   server {
-    listen 443 ssl;
+    listen 443 ssl http2;
+	listen [::]:443 ssl http2;
     server_name "${DOMAIN}";
 
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
@@ -96,8 +98,11 @@ letsencrypt certonly \
   --email "${EMAIL}" --agree-tos
 
 # Template a cronjob to reissue the certificate with the webroot authenticator
-cat <<EOF >/etc/periodic/monthly/reissue
-#!/bin/sh
+mkdir -p /etc/cron.monthly
+cat <<EOF >/etc/cron.monthly/reissue
+#!/bin/bash
+
+. venv/bin/activate
 
 set -euo pipefail
 
@@ -111,11 +116,7 @@ letsencrypt certonly --renew-by-default \
 # Reload nginx configuration to pick up the reissued certificates
 /usr/sbin/nginx -s reload
 EOF
-chmod +x /etc/periodic/monthly/reissue
-
-# Kick off cron to reissue certificates as required
-# Background the process and log to stderr
-/usr/sbin/crond -f -d 8 &
+chmod +x /etc/cron.monthly/reissue
 
 # Launch nginx in the foreground
 /usr/sbin/nginx -g "daemon off;"
